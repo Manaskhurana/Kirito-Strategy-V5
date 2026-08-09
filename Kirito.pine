@@ -1,8 +1,12 @@
 //@version=5
 indicator("Kirito", overlay=true, max_lines_count=500, max_labels_count=500)
 
+// Create a localized ticker to guarantee accuracy for Indian Markets (regular session)
+// Optimized using ticker.modify for strict NSE/BSE session handling
+in_ticker = ticker.modify(syminfo.tickerid, session.regular)
+
 // =========================================================================
-// 1. SUPERTREND (Converted to v5)
+// 1. SUPERTREND 
 // =========================================================================
 st_Periods = input.int(title="ATR Period", defval=10, group="SuperTrend")
 st_src = input.source(hl2, title="SuperTrend Source", group="SuperTrend")
@@ -37,8 +41,10 @@ plotshape(st_sellSignal ? st_dn : na, title="DownTrend Begins", location=locatio
 plotshape(st_sellSignal and st_showsignals ? st_dn : na, title="Sell", text="Sell", location=location.absolute, style=shape.labeldown, size=size.tiny, color=color.red, textcolor=color.white)
 
 st_mPlot = plot(ohlc4, title="", style=plot.style_circles, display=display.none)
-st_longFillColor = st_highlighting ? (st_trend == 1 ? color.green : color.white) : color.white
-st_shortFillColor = st_highlighting ? (st_trend == -1 ? color.red : color.white) : color.white
+
+// FIXED NOISE: Replaced color.white with na to prevent huge white boxes, added 85 transparency so candles are visible
+st_longFillColor = st_highlighting and st_trend == 1 ? color.new(color.green, 85) : na
+st_shortFillColor = st_highlighting and st_trend == -1 ? color.new(color.red, 85) : na
 fill(st_mPlot, st_upPlot, title="UpTrend Highligter", color=st_longFillColor)
 fill(st_mPlot, st_dnPlot, title="DownTrend Highligter", color=st_shortFillColor)
 
@@ -47,9 +53,8 @@ alertcondition(st_sellSignal, title="SuperTrend Sell", message="SuperTrend Sell!
 st_changeCond = st_trend != st_trend[1]
 alertcondition(st_changeCond, title="SuperTrend Direction Change", message="SuperTrend has changed direction!")
 
-
 // =========================================================================
-// 2. CENTRAL PIVOT RANGE - Sherwind (Converted to v5)
+// 2. CENTRAL PIVOT RANGE - Sherwind 
 // =========================================================================
 cpr1_daily_cpr = input.int(title="How many Daily CPR to show", defval=5, minval=0, group="Sherwind CPR")
 cpr1_weekly_cpr = input.int(title="How many Weekly CPR to show", defval=0, minval=0, group="Sherwind CPR")
@@ -60,18 +65,20 @@ cpr1_weekly_cpr_color = input.color(title="Weekly CPR color", defval=color.rgb(2
 cpr1_monthly_cpr_color = input.color(title="Monthly CPR color", defval=color.rgb(255, 0, 255, 70), group="Sherwind CPR")
 cpr1_yearly_cpr_color = input.color(title="Yearly CPR color", defval=color.rgb(255, 0, 0, 70), group="Sherwind CPR")
 
-cpr1_new_bar(res) => ta.change(time(res)) != 0
+cpr1_new_bar(res) => ta.change(time(res, session.regular, "Asia/Kolkata")) != 0
 cpr1_cpr() =>
     pivot = (high + low + close) / 3.0
     bc = (high + low) / 2.0
     tc = pivot - bc + pivot
     [pivot, bc, tc]
+    
 cpr1_cpr_levels() =>
     [pivot, bc, tc] = cpr1_cpr()
     md_level = pivot[1]
     hi_level = tc[1] >= bc[1] ? tc[1] : bc[1]
     lo_level = tc[1] >= bc[1] ? bc[1] : tc[1]
     [md_level, hi_level, lo_level]
+    
 cpr1_draw_line(line_level, res, level_color, show_count) =>
     var line _line = na
     var ary_line = array.new_line(show_count)
@@ -83,30 +90,30 @@ cpr1_draw_line(line_level, res, level_color, show_count) =>
         line.delete(array.shift(ary_line))
     if not na(_line) and line.get_x2(_line) != bar_index
         line.set_x2(_line, bar_index)
+        
 cpr1_draw_cpr(md_level, hi_level, lo_level, res, level_color, show_count) =>
     cpr1_draw_line(hi_level, res, level_color, show_count)
     cpr1_draw_line(md_level, res, level_color, show_count)
     cpr1_draw_line(lo_level, res, level_color, show_count)
 
-[cpr1_dpp, cpr1_dbc, cpr1_dtc] = request.security(syminfo.tickerid, 'D', cpr1_cpr_levels(), lookahead=barmerge.lookahead_on)
+[cpr1_dpp, cpr1_dbc, cpr1_dtc] = request.security(in_ticker, 'D', cpr1_cpr_levels(), lookahead=barmerge.lookahead_on)
 if timeframe.isintraday and cpr1_daily_cpr > 0
     cpr1_draw_cpr(cpr1_dpp, cpr1_dtc, cpr1_dbc, "D", cpr1_daily_cpr_color, cpr1_daily_cpr)
 
-[cpr1_wpp, cpr1_wbc, cpr1_wtc] = request.security(syminfo.tickerid, 'W', cpr1_cpr_levels(), lookahead=barmerge.lookahead_on)
+[cpr1_wpp, cpr1_wbc, cpr1_wtc] = request.security(in_ticker, 'W', cpr1_cpr_levels(), lookahead=barmerge.lookahead_on)
 if (timeframe.isintraday or timeframe.isdaily) and cpr1_weekly_cpr > 0
     cpr1_draw_cpr(cpr1_wpp, cpr1_wtc, cpr1_wbc, "W", cpr1_weekly_cpr_color, cpr1_weekly_cpr)
 
-[cpr1_mpp, cpr1_mbc, cpr1_mtc] = request.security(syminfo.tickerid, 'M', cpr1_cpr_levels(), lookahead=barmerge.lookahead_on)
+[cpr1_mpp, cpr1_mbc, cpr1_mtc] = request.security(in_ticker, 'M', cpr1_cpr_levels(), lookahead=barmerge.lookahead_on)
 if (timeframe.isintraday or timeframe.isdaily or timeframe.isweekly) and cpr1_monthly_cpr > 0
     cpr1_draw_cpr(cpr1_mpp, cpr1_mtc, cpr1_mbc, "M", cpr1_monthly_cpr_color, cpr1_monthly_cpr)
 
-[cpr1_ypp, cpr1_ybc, cpr1_ytc] = request.security(syminfo.tickerid, '12M', cpr1_cpr_levels(), lookahead=barmerge.lookahead_on)
+[cpr1_ypp, cpr1_ybc, cpr1_ytc] = request.security(in_ticker, '12M', cpr1_cpr_levels(), lookahead=barmerge.lookahead_on)
 if cpr1_yearly_cpr > 0
     cpr1_draw_cpr(cpr1_ypp, cpr1_ytc, cpr1_ybc, "12M", cpr1_yearly_cpr_color, cpr1_yearly_cpr)
 
-
 // =========================================================================
-// 3. EMA RIBBON (Converted to v5)
+// 3. EMA RIBBON 
 // =========================================================================
 ema_dropn(src, n) =>
     na(src[n]) ? na : src
@@ -124,18 +131,17 @@ ema_dropCandles = input.int(1, minval=0, title="Drop first N candles", group="EM
 
 ema_price = ema_dropn(ema_src, ema_dropCandles)
 
-plot(ta.ema(ema_price, ema_length1), title="MA-1", color=#f5eb5d, linewidth=2)
-plot(ta.ema(ema_price, ema_length2), title="MA-2", color=#f5b771, linewidth=2)
-plot(ta.ema(ema_price, ema_length3), title="MA-3", color=#f5b056, linewidth=2)
-plot(ta.ema(ema_price, ema_length4), title="MA-4", color=#f57b4e, linewidth=2)
-plot(ta.ema(ema_price, ema_length5), title="MA-5", color=#f56d58, linewidth=2)
-plot(ta.ema(ema_price, ema_length6), title="MA-6", color=#f57d51, linewidth=2)
-plot(ta.ema(ema_price, ema_length7), title="MA-7", color=#f55151, linewidth=2)
-plot(ta.ema(ema_price, ema_length8), title="MA-8", color=#aa2707, linewidth=2)
-
+plot(ta.ema(ema_price, ema_length1), title="MA-1", color=color.new(#f5eb5d, 20), linewidth=1)
+plot(ta.ema(ema_price, ema_length2), title="MA-2", color=color.new(#f5b771, 20), linewidth=1)
+plot(ta.ema(ema_price, ema_length3), title="MA-3", color=color.new(#f5b056, 20), linewidth=1)
+plot(ta.ema(ema_price, ema_length4), title="MA-4", color=color.new(#f57b4e, 20), linewidth=1)
+plot(ta.ema(ema_price, ema_length5), title="MA-5", color=color.new(#f56d58, 20), linewidth=1)
+plot(ta.ema(ema_price, ema_length6), title="MA-6", color=color.new(#f57d51, 20), linewidth=1)
+plot(ta.ema(ema_price, ema_length7), title="MA-7", color=color.new(#f55151, 20), linewidth=1)
+plot(ta.ema(ema_price, ema_length8), title="MA-8", color=color.new(#aa2707, 20), linewidth=2)
 
 // =========================================================================
-// 4. CENTRAL PIVOT RANGE - ajithcpas (Already v5, variables intact)
+// 4. CENTRAL PIVOT RANGE - ajithcpas 
 // =========================================================================
 AUTO = "Auto"
 DAILY = "Daily"
@@ -150,11 +156,10 @@ FIBONACCI = "Fibonacci"
 CLASSIC = "Classic"
 CAMARILLA = "Camarilla"
 
-// Input fields
 kind = input.string(title="Type", defval="Traditional", options=[TRADITIONAL, FIBONACCI, CLASSIC, CAMARILLA], group="Advanced CPR")
 cpr_time_frame = input.string(title="CPR Timeframe", defval=AUTO, options=[AUTO, DAILY, WEEKLY, MONTHLY, QUARTERLY, HALF_YEARLY, YEARLY], group="Advanced CPR")
 look_back = input.int(title="Number of CPR Back", defval=2, minval=1, maxval=5000, group="Advanced CPR")
-is_daily_based = input.bool(title="Use Daily-based Values", defval=true, tooltip="When this option is unchecked, CPR will use intraday data while calculating on intraday charts. If Extended Hours are displayed on the chart, they will be taken into account during the CPR level calculation. If intraday OHLC values are different from daily-based values (normal for stocks), the CPR levels will also differ.", group="Advanced CPR")
+is_daily_based = input.bool(title="Use Daily-based Values", defval=true, group="Advanced CPR")
 
 show_labels = input.bool(title="Show Labels", defval=true, group="labels")
 show_prices = input.bool(title="Show Prices", defval=true, group="labels")
@@ -171,60 +176,71 @@ cpr_color = input.color(color.purple, "CPR", inline="CPR", group="CPR levels")
 var SR_COLOR = #FB8C00
 sr_show = input.bool(false, "Show SR Levels", inline="Show SR Levels", group="CPR levels")
 hist_sr_show = input.bool(false, "Show Historical SR Levels", inline="Show SR Levels", group="CPR levels")
+
+// FIXED NOISE: Set defval to false for the half levels (0.5, 1.5, etc.) to heavily de-clutter the chart. 
 var r0_5 = array.new_float()
 var s0_5 = array.new_float()
-s0_5_show = input.bool(true, "", inline="S0.5/R0.5", group="CPR levels")
+s0_5_show = input.bool(false, "", inline="S0.5/R0.5", group="CPR levels")
 s0_5_color = input.color(SR_COLOR, "S0.5", inline="S0.5/R0.5" , group="CPR levels")
-r0_5_show = input.bool(true, "", inline="S0.5/R0.5", group="CPR levels")
+r0_5_show = input.bool(false, "", inline="S0.5/R0.5", group="CPR levels")
 r0_5_color = input.color(SR_COLOR, "R0.5", inline="S0.5/R0.5", group="CPR levels")
+
 var r1 = array.new_float()
 var s1 = array.new_float()
 s1_show = input.bool(true, "", inline="S1/R1", group="CPR levels")
 s1_color = input.color(SR_COLOR, "S1", inline="S1/R1" , group="CPR levels")
 r1_show = input.bool(true, "", inline="S1/R1", group="CPR levels")
 r1_color = input.color(SR_COLOR, "R1", inline="S1/R1", group="CPR levels")
+
 var r1_5 = array.new_float()
 var s1_5 = array.new_float()
-s1_5_show = input.bool(true, "", inline="S1.5/R1.5", group="CPR levels")
+s1_5_show = input.bool(false, "", inline="S1.5/R1.5", group="CPR levels")
 s1_5_color = input.color(SR_COLOR, "S1.5", inline="S1.5/R1.5" , group="CPR levels")
-r1_5_show = input.bool(true, "", inline="S1.5/R1.5", group="CPR levels")
+r1_5_show = input.bool(false, "", inline="S1.5/R1.5", group="CPR levels")
 r1_5_color = input.color(SR_COLOR, "R1.5", inline="S1.5/R1.5", group="CPR levels")
+
 var r2 = array.new_float()
 var s2 = array.new_float()
 s2_show = input.bool(true, "", inline="S2/R2", group="CPR levels")
 s2_color = input.color(SR_COLOR, "S2", inline="S2/R2", group="CPR levels")
 r2_show = input.bool(true, "", inline="S2/R2", group="CPR levels")
 r2_color = input.color(SR_COLOR, "R2", inline="S2/R2", group="CPR levels")
+
 var r2_5 = array.new_float()
 var s2_5 = array.new_float()
-s2_5_show = input.bool(true, "", inline="S2.5/R2.5", group="CPR levels")
+s2_5_show = input.bool(false, "", inline="S2.5/R2.5", group="CPR levels")
 s2_5_color = input.color(SR_COLOR, "S2.5", inline="S2.5/R2.5" , group="CPR levels")
-r2_5_show = input.bool(true, "", inline="S2.5/R2.5", group="CPR levels")
+r2_5_show = input.bool(false, "", inline="S2.5/R2.5", group="CPR levels")
 r2_5_color = input.color(SR_COLOR, "R2.5", inline="S2.5/R2.5", group="CPR levels")
+
 var r3 = array.new_float()
 var s3 = array.new_float()
 s3_show = input.bool(true, "", inline="S3/R3", group="CPR levels")
 s3_color = input.color(SR_COLOR, "S3", inline="S3/R3", group="CPR levels")
 r3_show = input.bool(true, "", inline="S3/R3", group="CPR levels")
 r3_color = input.color(SR_COLOR, "R3", inline="S3/R3", group="CPR levels")
+
 var r3_5 = array.new_float()
 var s3_5 = array.new_float()
-s3_5_show = input.bool(true, "", inline="S3.5/R3.5", group="CPR levels")
+s3_5_show = input.bool(false, "", inline="S3.5/R3.5", group="CPR levels")
 s3_5_color = input.color(SR_COLOR, "S3.5", inline="S3.5/R3.5" , group="CPR levels")
-r3_5_show = input.bool(true, "", inline="S3.5/R3.5", group="CPR levels")
+r3_5_show = input.bool(false, "", inline="S3.5/R3.5", group="CPR levels")
 r3_5_color = input.color(SR_COLOR, "R3.5", inline="S3.5/R3.5", group="CPR levels")
+
 var r4 = array.new_float()
 var s4 = array.new_float()
 s4_show = input.bool(true, "", inline="S4/R4", group="CPR levels")
 s4_color = input.color(SR_COLOR, "S4", inline="S4/R4", group="CPR levels")
 r4_show = input.bool(true, "", inline="S4/R4", group="CPR levels")
 r4_color = input.color(SR_COLOR, "R4", inline="S4/R4", group="CPR levels")
+
 var r4_5 = array.new_float()
 var s4_5 = array.new_float()
-s4_5_show = input.bool(true, "", inline="S4.5/R4.5", group="CPR levels")
+s4_5_show = input.bool(false, "", inline="S4.5/R4.5", group="CPR levels")
 s4_5_color = input.color(SR_COLOR, "S4.5", inline="S4.5/R4.5" , group="CPR levels")
-r4_5_show = input.bool(true, "", inline="S4.5/R4.5", group="CPR levels")
+r4_5_show = input.bool(false, "", inline="S4.5/R4.5", group="CPR levels")
 r4_5_color = input.color(SR_COLOR, "R4.5", inline="S4.5/R4.5", group="CPR levels")
+
 var r5 = array.new_float()
 var s5 = array.new_float()
 s5_show = input.bool(true, "", inline="S5/R5", group="CPR levels")
@@ -241,8 +257,8 @@ dev_s1_color = input.color(SR_COLOR, "S1", inline="S1/R1" , group="Developing CP
 dev_r1_show = input.bool(true, "", inline="S1/R1", group="Developing CPR levels")
 dev_r1_color = input.color(SR_COLOR, "R1", inline="S1/R1", group="Developing CPR levels")
 extend_dev_cpr_line = input.bool(false, "", inline="extend", group="Developing CPR levels")
-dev_cpr_line_days = input.int(title="Extend line by days", defval=1, minval=1, maxval=10, inline="extend", group="Developing CPR levels", tooltip="Enable this when the Dev CPR lines are not visible(i.e. there is a trading holiday in upcoming session).")
-check_holidays = input.bool(true, "Check NSE/BSE holidays", group="Developing CPR levels", tooltip="Enable this when the Dev CPR lines are not visible(i.e. there is a trading holiday in upcoming session).")
+dev_cpr_line_days = input.int(title="Extend line by days", defval=1, minval=1, maxval=10, inline="extend", group="Developing CPR levels")
+check_holidays = input.bool(true, "Check NSE/BSE holidays", group="Developing CPR levels")
 
 pivotX_open = float(na)
 pivotX_open := nz(pivotX_open[1], open)
@@ -300,7 +316,7 @@ draw_label(i, y, txt, txt_color) =>
         if show_labels and show_prices and txt != ''
             display_text := str.format("                                {0} - {1}", txt, math.round_to_mintick(y))
         else if show_labels and txt != ''
-            display_text := "                               " + txt
+            display_text := "                                " + txt
         else
             display_text := str.format("                                {0}", math.round_to_mintick(y))
         x = position_labels == "Left" ? array.get(arr_time, i) : array.get(arr_time, i + 1)
@@ -308,7 +324,6 @@ draw_label(i, y, txt, txt_color) =>
 
 traditional() =>
     pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
-
     _r1 = pivotX_Median * 2 - pivotX_prev_low
     _s1 = pivotX_Median * 2 - pivotX_prev_high
     _r2 = pivotX_Median + 1 * (pivotX_prev_high - pivotX_prev_low)
@@ -343,7 +358,6 @@ traditional() =>
 fibonacci() =>
     pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
     pivot_range = pivotX_prev_high - pivotX_prev_low
-
     array.push(r1, pivotX_Median + 0.382 * pivot_range)
     array.push(s1, pivotX_Median - 0.382 * pivot_range)
     array.push(r2, pivotX_Median + 0.618 * pivot_range)
@@ -354,7 +368,6 @@ fibonacci() =>
 classic() =>
     pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
     pivot_range = pivotX_prev_high - pivotX_prev_low
-
     array.push(r1, pivotX_Median * 2 - pivotX_prev_low)
     array.push(s1, pivotX_Median * 2 - pivotX_prev_high)
     array.push(r2, pivotX_Median + 1 * pivot_range)
@@ -367,7 +380,6 @@ classic() =>
 camarilla() =>
     pivotX_Median = (pivotX_prev_high + pivotX_prev_low + pivotX_prev_close) / 3
     pivot_range = pivotX_prev_high - pivotX_prev_low
-
     array.push(r1, pivotX_prev_close + pivot_range * 1.1 / 12.0)
     array.push(s1, pivotX_prev_close - pivot_range * 1.1 / 12.0)
     array.push(r2, pivotX_prev_close + pivot_range * 1.1 / 6.0)
@@ -405,30 +417,20 @@ calc_pivot() =>
 
 resolution = get_pivot_resolution()
 
-calc_high(prev, curr) =>
-    if na(prev) or na(curr)
-        nz(prev, nz(curr, na))
-    else
-        math.max(prev, curr)
-
-calc_low(prev, curr) =>
-    if not na(prev) and not na(curr)
-        math.min(prev, curr)
-    else
-        nz(prev, nz(curr, na))
-
-[sec_open, sec_high, sec_low, prev_sec_open, prev_sec_high, prev_sec_low, prev_sec_close, prev_sec_time] = request.security(syminfo.tickerid, resolution, [open, high, low, open[1], high[1], low[1], close[1], time[1]], lookahead = barmerge.lookahead_on)
-sec_open_gaps_on = request.security(syminfo.tickerid, resolution, open, gaps = barmerge.gaps_on, lookahead = barmerge.lookahead_on)
+// Split floats and ints to prevent v5 tuple mix errors in older compilers
+[sec_open, sec_high, sec_low, prev_sec_open, prev_sec_high, prev_sec_low, prev_sec_close] = request.security(in_ticker, resolution, [open, high, low, open[1], high[1], low[1], close[1]], lookahead = barmerge.lookahead_on)
+prev_sec_time = request.security(in_ticker, resolution, time[1], lookahead = barmerge.lookahead_on)
+sec_open_gaps_on = request.security(in_ticker, resolution, open, gaps = barmerge.gaps_on, lookahead = barmerge.lookahead_on)
 
 var is_change = false
 var uses_current_bar = false
 var change_time = int(na)
-is_time_change = ta.change(time(resolution)) != 0
+is_time_change = ta.change(time(resolution, session.regular, "Asia/Kolkata")) != 0
+
 if is_time_change
     change_time := time
 
 var start_time = time
-
 without_time_change = barstate.islast and array.size(arr_time) == 0
 is_can_calc_pivot = (not uses_current_bar and is_time_change) or (uses_current_bar and not na(sec_open_gaps_on)) or without_time_change
 enough_bars_for_calculate = prev_sec_time >= start_time or is_daily_based
@@ -532,13 +534,18 @@ if barstate.islast and not is_daily_based and array.size(arr_time) == 0
 
 if barstate.islast and array.size(arr_time) > 0 and is_change
     is_change := false
-    array.push(arr_time, time_close(resolution))
+    array.push(arr_time, time_close(resolution, session.regular, "Asia/Kolkata"))
 
-    for i = 0 to array.size(lines) - 1
-        if array.size(lines) > 0
-            line.delete(array.shift(lines))
-        if array.size(labels) > 0
-            label.delete(array.shift(labels))
+    // [OPTIMIZED] Bulk deletion method (Fixes loop shifting index skips)
+    if array.size(lines) > 0
+        for i = 0 to array.size(lines) - 1
+            line.delete(array.get(lines, i))
+        array.clear(lines)
+        
+    if array.size(labels) > 0
+        for i = 0 to array.size(labels) - 1
+            label.delete(array.get(labels, i))
+        array.clear(labels)
 
     for i = 0 to array.size(arr_time) - 2
         if array.size(p) > 0 and cpr_show
@@ -620,6 +627,9 @@ if barstate.islast and array.size(arr_time) > 0 and is_change
     if array.size(bp) > 0 and cpr_show
         draw_label(i, array.get(bp, i), "", cpr_color)
 
+    // [OPTIMIZED] State fix: Prevent real-time repainting corruption by removing temporary end time 
+    array.pop(arr_time)
+
 isHoliday(_date) =>
     is_holiday = (_date == timestamp("Asia/Kolkata", 2024, 12, 25, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 02, 26, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 03, 14, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 03, 31, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 04, 10, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 04, 14, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 04, 18, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 05, 01, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 08, 15, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 08, 27, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 10, 02, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 10, 21, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 10, 22, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 11, 05, 15, 30) or _date == timestamp("Asia/Kolkata", 2025, 12, 25, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 01, 26, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 03, 03, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 03, 26, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 03, 31, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 04, 03, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 04, 14, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 05, 01, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 05, 28, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 06, 26, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 09, 14, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 10, 02, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 10, 20, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 11, 10, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 11, 24, 15, 30) or _date == timestamp("Asia/Kolkata", 2026, 12, 25, 15, 30))
     is_holiday
@@ -628,15 +638,15 @@ getDevEndTime() =>
     ONE_DAY = 1000 * 60 * 60 * 24
     var dev_end_time = 0
     if resolution == "D"
-        dev_end_time := time_close(resolution) + ONE_DAY
+        dev_end_time := time_close(resolution, session.regular, "Asia/Kolkata") + ONE_DAY
     else if resolution == "W"
-        dev_end_time := time_close(resolution) + (ONE_DAY * 7)
+        dev_end_time := time_close(resolution, session.regular, "Asia/Kolkata") + (ONE_DAY * 7)
     else if resolution == "M"
-        dev_end_time := time_close(resolution) + (ONE_DAY * 30)
+        dev_end_time := time_close(resolution, session.regular, "Asia/Kolkata") + (ONE_DAY * 30)
     else if resolution == "6M"
-        dev_end_time := time_close(resolution) + (ONE_DAY * 30 * 6)
+        dev_end_time := time_close(resolution, session.regular, "Asia/Kolkata") + (ONE_DAY * 30 * 6)
     else
-        dev_end_time := time_close(resolution) + (ONE_DAY * 30 * 12)
+        dev_end_time := time_close(resolution, session.regular, "Asia/Kolkata") + (ONE_DAY * 30 * 12)
 
     while dayofweek(dev_end_time, "Asia/Kolkata") == dayofweek.saturday or dayofweek(dev_end_time, "Asia/Kolkata") == dayofweek.sunday or (check_holidays and isHoliday(dev_end_time))
         dev_end_time := dev_end_time + ONE_DAY
@@ -648,7 +658,7 @@ getDevEndTime() =>
 
 drawLineAndLabel(_price, _line_color, _text, _text_color) =>
     var dev_start_time = 0
-    dev_start_time := time_close(resolution)
+    dev_start_time := time_close(resolution, session.regular, "Asia/Kolkata")
     var dev_end_time = 0
     dev_end_time := getDevEndTime()
 
@@ -668,7 +678,7 @@ drawLineAndLabel(_price, _line_color, _text, _text_color) =>
         label.delete(_aLabel[1])
     _aLine
 
-[curr_high, curr_low, curr_close] = request.security(syminfo.tickerid, resolution, [high, low, close], lookahead = barmerge.lookahead_on)
+[curr_high, curr_low, curr_close] = request.security(in_ticker, resolution, [high, low, close], lookahead = barmerge.lookahead_on)
 dpp = (curr_high + curr_low + curr_close) / 3.0
 
 if dev_cpr_show
@@ -688,5 +698,5 @@ if dev_r1_show
 if dev_s1_show
     _dev_s1 = dpp * 2 - curr_high
     if kind == FIBONACCI
-        _dev_s1 := dpp - 0.382 * (curr_high - curr_low)
+        _dev_s1 := dpp - 0.382 * (curr_high - curr_low) 
     drawLineAndLabel(_dev_s1, dev_s1_color, "Dev S1", dev_s1_color)
